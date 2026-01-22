@@ -1,1 +1,35 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@font-face {
+  font-family: "Neue Montreal";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/Neue Montreal/PPNeueMontreal-Variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Neue Montreal";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/Neue Montreal/PPNeueMontreal-Variable.woff2") format("woff2");
+}
+
+@theme {
+  --font-sans: "Neue Montreal", sans-serif;
+  --color-background: #FDFDFC;
+  --color-foreground: #12110D;
+}
+
+:root.dark {
+  --color-background: #12110D;
+  --color-foreground: #edecec;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
