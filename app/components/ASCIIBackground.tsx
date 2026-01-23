@@ -141,12 +141,45 @@ const fragmentShaderSource = `
     return l + s * (rgb - 0.5) * (1.0 - abs(2.0 * l - 1.0));
   }
 
-  // Get color for sphere index
-  vec3 getSphereColor(float index, float brightness) {
+  // Get base color for sphere index
+  vec3 getBaseColor(float index) {
     float hue = index / 16.0;  // Spread hues across the spectrum
-    float saturation = 0.7;
-    float lightness = mix(0.3, 0.7, brightness);  // Vary lightness with shading
-    return hsl2rgb(hue, saturation, lightness);
+    return hsl2rgb(hue, 0.8, 0.5);
+  }
+
+  // Metallic shading for spheres
+  vec3 getMetallicColor(float index, vec3 normal, vec3 viewDir) {
+    vec3 baseColor = getBaseColor(index);
+
+    // Light direction
+    vec3 lightDir = normalize(vec3(-0.5, 0.5, 1.0));
+    vec3 halfDir = normalize(lightDir + viewDir);
+
+    // Diffuse (metallic materials have subtle diffuse)
+    float diff = max(dot(normal, lightDir), 0.0);
+
+    // Specular (sharp, metallic highlight)
+    float spec = pow(max(dot(normal, halfDir), 0.0), 64.0);
+
+    // Fresnel rim effect (metallic edges catch light)
+    float fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.0);
+
+    // Ambient (tinted by base color for metals)
+    vec3 ambient = baseColor * 0.15;
+
+    // Diffuse is tinted by base color
+    vec3 diffuseColor = baseColor * diff * 0.5;
+
+    // Specular is white-ish but slightly tinted (metallic reflection)
+    vec3 specColor = mix(vec3(1.0), baseColor, 0.3) * spec * 1.2;
+
+    // Fresnel rim adds bright edge
+    vec3 rimColor = mix(vec3(1.0), baseColor, 0.5) * fresnel * 0.6;
+
+    // Combine
+    vec3 finalColor = ambient + diffuseColor + specColor + rimColor;
+
+    return clamp(finalColor, 0.0, 1.0);
   }
 
   // Scene SDF - 16 balls in a circle, tilted and rotated
@@ -369,6 +402,8 @@ const fragmentShaderSource = `
     float gray = 1.0;       // Cell-sampled gray for ASCII dots
     float rawGray = 1.0;    // Per-pixel gray for smooth raw render
     float sphereIndex = -1.0;  // Track which sphere was hit
+    vec3 hitNormal = vec3(0.0, 0.0, 1.0);  // Store normal for metallic shading
+    vec3 hitViewDir = vec3(0.0, 0.0, 1.0); // Store view direction
 
     if (insideRenderArea) {
       // Raymarch at per-pixel resolution for smooth raw render and sphere index
@@ -380,6 +415,8 @@ const fragmentShaderSource = `
       if (t > 0.0) {
         vec3 p = roPixel + rd * t;
         vec3 n = calcNormal(p);
+        hitNormal = n;
+        hitViewDir = normalize(roPixel - p);
 
         // Soft hemisphere lighting (sky/ground)
         float hemi = 0.5 + 0.5 * n.y;
@@ -497,8 +534,8 @@ const fragmentShaderSource = `
       float opacity = (1.0 - gray) * showDot;
       vec3 asciiColor = mix(bgColor, fgColor, opacity);
 
-      // Colored version for flicker effect (smooth per-pixel)
-      vec3 rawColor = getSphereColor(sphereIndex, rawGray);
+      // Metallic colored version for flicker effect
+      vec3 rawColor = getMetallicColor(sphereIndex, hitNormal, hitViewDir);
 
       // Blend between ASCII and raw based on flicker mask
       color = mix(asciiColor, rawColor, flickerMask);
