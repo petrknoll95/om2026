@@ -11,8 +11,11 @@
     "@phosphor-icons/react": "^2.1.10",
     "motion": "^12.28.1",
     "next": "16.1.4",
+    "ogl": "^1.0.11",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "resolve-lygia": "^1.0.4",
+    "spltjs": "^1.1.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

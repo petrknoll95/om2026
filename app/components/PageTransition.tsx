@@ -1,19 +1,44 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, createContext, useContext } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import NavLogo from "./NavLogo";
+import ASCIIBackground from "./ASCIIBackground";
+
+// Context to signal when intro is complete
+const IntroCompleteContext = createContext(false);
+export const useIntroComplete = () => useContext(IntroCompleteContext);
 
 export default function PageTransition({ children }: { children: React.ReactNode }) {
   const [showSplash, setShowSplash] = useState(true);
   const [showContent, setShowContent] = useState(false);
+  const [isFadingOut, setIsFadingOut] = useState(false);
 
+  // Disable scrolling until intro is complete
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowSplash(false);
-    }, 1500);
+    if (!isFadingOut) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isFadingOut]);
 
-    return () => clearTimeout(timer);
+  // Auto-transition after 5 seconds
+  useEffect(() => {
+    const fadeTimer = setTimeout(() => {
+      setIsFadingOut(true);
+    }, 4200);
+
+    const hideTimer = setTimeout(() => {
+      setShowSplash(false);
+    }, 5000);
+
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(hideTimer);
+    };
   }, []);
 
   return (
@@ -21,32 +46,29 @@ export default function PageTransition({ children }: { children: React.ReactNode
       <AnimatePresence onExitComplete={() => setShowContent(true)}>
         {showSplash && (
           <motion.div
-            className="fixed inset-0 z-[100] bg-background"
-            initial={{ opacity: 1 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+            className="fixed inset-0 z-100 w-screen h-screen"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: isFadingOut ? 0 : 1 }}
+            transition={{ duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
           >
-            <div className="flex items-center justify-center h-full">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
-              >
-                <NavLogo className="text-foreground/40" />
-              </motion.div>
-            </div>
+            <ASCIIBackground
+              cellSize={5}
+              overlayText="AI-native product studio"
+              asciiEnabled={true}
+            />
           </motion.div>
         )}
       </AnimatePresence>
 
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: showContent ? 1 : 0 }}
-        transition={{ duration: 0.6, ease: [0.4, 0, 0.2, 1] }}
-      >
-        {children}
-      </motion.div>
+      <IntroCompleteContext.Provider value={isFadingOut}>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: isFadingOut ? 1 : 0 }}
+          transition={{ duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
+        >
+          {children}
+        </motion.div>
+      </IntroCompleteContext.Provider>
     </>
   );
 }

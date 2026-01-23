@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import NavMenu from "./NavMenu";
+import { useIntroComplete } from "./PageTransition";
 
 function ThemeToggle() {
   const [isDark, setIsDark] = useState(false);
@@ -42,10 +43,16 @@ function ThemeToggle() {
 }
 
 export default function Header() {
+  const introComplete = useIntroComplete();
+
   return (
-    <header>
+    <motion.header
+      initial={{ opacity: 0, y: -20 }}
+      animate={introComplete ? { opacity: 1, y: 0 } : { opacity: 0, y: -20 }}
+      transition={{ duration: 0.6, delay: 0.2, ease: [0.4, 0, 0.2, 1] }}
+    >
       <NavMenu />
       <ThemeToggle />
-    </header>
+    </motion.header>
   );
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Header from "./components/Header";
 import PageTransition from "./components/PageTransition";
+import CookiesBar from "./components/CookiesBar";
 
 export const metadata: Metadata = {
   title: "Create Next App",
@@ -19,6 +20,7 @@ export default function RootLayout({
         <PageTransition>
           <Header />
           {children}
+          <CookiesBar />
         </PageTransition>
       </body>
     </html>

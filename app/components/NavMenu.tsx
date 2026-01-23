@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence, useMotionValue, useSpring, useMotionTemplate, useAnimate, PanInfo } from "motion/react";
 import NavLogo from "./NavLogo";
+import { useIntroComplete } from "./PageTransition";
 
 function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
@@ -29,9 +30,37 @@ export default function NavMenu() {
   const [isDragging, setIsDragging] = useState(false);
   const [isNearOrigin, setIsNearOrigin] = useState(false);
   const [isDropZoneAnimating, setIsDropZoneAnimating] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [scope, animate] = useAnimate();
   const placeholderRef = useRef<SVGSVGElement>(null);
   const dropZoneTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const introComplete = useIntroComplete();
+  const hasAnimatedRef = useRef(false);
+
+  // Detect mobile viewport
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 800);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  // Open menu after intro, then close after delay
+  useEffect(() => {
+    if (introComplete && !hasAnimatedRef.current) {
+      hasAnimatedRef.current = true;
+      // Open menu after a short delay
+      const openTimer = setTimeout(() => {
+        setIsOpen(true);
+        // Close menu after showing
+        const closeTimer = setTimeout(() => {
+          setIsOpen(false);
+        }, 1500);
+        return () => clearTimeout(closeTimer);
+      }, 800);
+      return () => clearTimeout(openTimer);
+    }
+  }, [introComplete]);
 
   useEffect(() => {
     if (isDragging) {
@@ -194,12 +223,12 @@ export default function NavMenu() {
           <NavLogo className="text-foreground/90" />
         </motion.div>
         <AnimatePresence initial={false}>
-          {isOpen && (
+          {isOpen && !isMobile && (
             <motion.div
               initial={{ width: 0 }}
               animate={{ width: "auto" }}
               exit={{ width: 0 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
+              transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
               className="overflow-hidden"
             >
               <motion.div
@@ -207,8 +236,8 @@ export default function NavMenu() {
                 animate="visible"
                 exit="hidden"
                 variants={{
-                  visible: { transition: { staggerChildren: 0.05 } },
-                  hidden: { transition: { staggerChildren: 0.03, staggerDirection: -1 } },
+                  visible: { transition: { staggerChildren: 0.06 } },
+                  hidden: { transition: { staggerChildren: 0.04, staggerDirection: -1 } },
                 }}
                 className="flex items-center gap-1"
               >
@@ -229,6 +258,41 @@ export default function NavMenu() {
           <span className={`w-[1.5px] h-4 bg-current transition-transform duration-300 ease-in-out pointer-events-none ${isOpen ? "rotate-45 translate-x-px" : ""}`} />
           <span className={`w-[1.5px] h-4 bg-current transition-transform duration-300 ease-in-out pointer-events-none ${isOpen ? "-rotate-45 -translate-x-px" : ""}`} />
         </motion.button>
+        {/* Mobile dropdown menu */}
+        <AnimatePresence initial={false}>
+          {isOpen && isMobile && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+              className="absolute top-full left-0 mt-2 overflow-hidden"
+            >
+              <motion.div
+                className="p-1.5 rounded-2xl"
+                style={{
+                  backdropFilter: "blur(0.25rem)",
+                }}
+              >
+                <div className="absolute inset-0 rounded-2xl bg-[rgba(200,200,200,0.35)] shadow-[inset_0_0_1px_1px_rgba(255,255,255,0.25)] dark:shadow-[inset_0_0_1px_1px_rgba(255,255,255,0.05)] dark:bg-[rgba(200,200,200,0.15)]" />
+                <motion.div
+                  initial="hidden"
+                  animate="visible"
+                  exit="hidden"
+                  variants={{
+                    visible: { transition: { staggerChildren: 0.06 } },
+                    hidden: { transition: { staggerChildren: 0.04, staggerDirection: -1 } },
+                  }}
+                  className="flex flex-col gap-1 relative z-10"
+                >
+                  <NavLink href="#work">Work</NavLink>
+                  <NavLink href="#manifest">Manifest</NavLink>
+                  <NavLink href="#contact">Contact</NavLink>
+                </motion.div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
     </nav>
   );
