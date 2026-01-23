@@ -135,6 +135,20 @@ const fragmentShaderSource = `
                 0.0, 0.0, 1.0);
   }
 
+  // HSL to RGB conversion
+  vec3 hsl2rgb(float h, float s, float l) {
+    vec3 rgb = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+    return l + s * (rgb - 0.5) * (1.0 - abs(2.0 * l - 1.0));
+  }
+
+  // Get color for sphere index
+  vec3 getSphereColor(float index, float brightness) {
+    float hue = index / 16.0;  // Spread hues across the spectrum
+    float saturation = 0.7;
+    float lightness = mix(0.3, 0.7, brightness);  // Vary lightness with shading
+    return hsl2rgb(hue, saturation, lightness);
+  }
+
   // Scene SDF - 16 balls in a circle, tilted and rotated
   float scene(vec3 p) {
     // Tilt by 45 degrees on Y, then rotate 45 degrees around X
@@ -222,17 +236,99 @@ const fragmentShaderSource = `
     return d;
   }
 
-  // Simple raymarching
-  float raymarch(vec3 ro, vec3 rd) {
+  // Scene SDF with sphere index tracking - returns vec2(distance, sphereIndex)
+  vec2 sceneWithIndex(vec3 p) {
+    // Tilt by 45 degrees on Y, then rotate 45 degrees around X
+    p = rotateX(0.7854) * rotateY(0.7854) * p;
+
+    float d = 1e10;
+    float closestIndex = -1.0;
+
+    // Animate radius: start large, converge, hold, then expand near end
+    float convergeDuration = 1.5;
+    float expandStart = 3.5;
+    float expandDuration = 1.0;
+
+    float radiusScale;
+    if (u_time < convergeDuration) {
+      float t = u_time / convergeDuration;
+      float eased = 1.0 - pow(1.0 - t, 3.0);
+      radiusScale = mix(3.0, 1.0, eased);
+    } else if (u_time < expandStart) {
+      radiusScale = 1.0;
+    } else {
+      float t = clamp((u_time - expandStart) / expandDuration, 0.0, 1.0);
+      float eased = t * t * t;
+      radiusScale = mix(1.0, 4.0, eased);
+    }
+    float circleRadius = 1.5 * radiusScale;
+
+    // Ball size
+    float ballRadius = 0.12;
+    if (u_time >= expandStart) {
+      float t = clamp((u_time - expandStart) / expandDuration, 0.0, 1.0);
+      float eased = t * t * t;
+      ballRadius = mix(0.12, 0.24, eased);
+    }
+
+    // Rotation angle calculation
+    float baseSpeed = 0.8;
+    float fadeInDuration = 2.5;
+    float fadeOutStart = 3.5;
+    float fadeOutDuration = 1.0;
+
+    float rotAngle;
+    if (u_time < fadeInDuration) {
+      float t = u_time / fadeInDuration;
+      float integral = t + 0.5 - 0.5 * pow(1.0 - t, 6.0);
+      rotAngle = baseSpeed * fadeInDuration * integral;
+    } else if (u_time < fadeOutStart) {
+      float fadeInAngle = baseSpeed * fadeInDuration * 1.5;
+      rotAngle = fadeInAngle + baseSpeed * (u_time - fadeInDuration);
+    } else {
+      float fadeInAngle = baseSpeed * fadeInDuration * 1.5;
+      float holdAngle = baseSpeed * (fadeOutStart - fadeInDuration);
+      float t = clamp((u_time - fadeOutStart) / fadeOutDuration, 0.0, 1.0);
+      float integral = t + 0.75 * pow(t, 4.0);
+      rotAngle = fadeInAngle + holdAngle + baseSpeed * fadeOutDuration * integral;
+    }
+
+    for (int i = 0; i < 16; i++) {
+      float angle = float(i) * 3.14159265 * 2.0 / 16.0 - rotAngle;
+      vec3 ballPos = vec3(
+        cos(angle) * circleRadius,
+        sin(angle) * circleRadius,
+        0.0
+      );
+      vec3 tiltedPos = rotateX(0.7854) * rotateY(0.7854) * ballPos;
+      float depthScale = 1.0 + tiltedPos.z * 0.4;
+      float sphereDist = sdSphere(p - ballPos, ballRadius * depthScale);
+
+      if (sphereDist < d) {
+        d = sphereDist;
+        closestIndex = float(i);
+      }
+    }
+
+    return vec2(d, closestIndex);
+  }
+
+  // Simple raymarching - returns vec2(distance, sphereIndex)
+  vec2 raymarchWithIndex(vec3 ro, vec3 rd) {
     float t = 0.0;
+    float sphereIndex = -1.0;
     for (int i = 0; i < 64; i++) {
       vec3 p = ro + rd * t;
-      float d = scene(p);
-      if (d < 0.001) return t;
+      vec2 result = sceneWithIndex(p);
+      float d = result.x;
+      if (d < 0.001) {
+        sphereIndex = result.y;
+        return vec2(t, sphereIndex);
+      }
       if (t > 20.0) break;
       t += d;
     }
-    return -1.0;
+    return vec2(-1.0, -1.0);
   }
 
   // Calculate normal
@@ -258,28 +354,32 @@ const fragmentShaderSource = `
     bool insideRenderArea = localPix.x >= 0.0 && localPix.x < renderAreaSize.x &&
                             localPix.y >= 0.0 && localPix.y < renderAreaSize.y;
 
-    // Sample at cell centers for ASCII, or full resolution for raw render
-    vec2 sampleCoord;
-    if (u_asciiEnabled > 0.5) {
-      sampleCoord = floor(localPix / cellSize) * cellSize + cellSize * 0.5;
-    } else {
-      sampleCoord = localPix;
-    }
-    vec2 uv = (sampleCoord / renderAreaSize) * 2.0 - 1.0;
-    uv.x *= renderAreaSize.x / renderAreaSize.y;
+    // Per-pixel UV for smooth raw render
+    vec2 pixelUV = (localPix / renderAreaSize) * 2.0 - 1.0;
+    pixelUV.x *= renderAreaSize.x / renderAreaSize.y;
+
+    // Cell-center UV for ASCII sampling
+    vec2 cellCenter = floor(localPix / cellSize) * cellSize + cellSize * 0.5;
+    vec2 cellUV = (cellCenter / renderAreaSize) * 2.0 - 1.0;
+    cellUV.x *= renderAreaSize.x / renderAreaSize.y;
 
     // Raymarching setup - orthographic camera
-    vec3 ro = vec3(uv * 3.0, 5.0);  // Ray origin moves with UV
     vec3 rd = vec3(0.0, 0.0, -1.0);  // Parallel rays
 
-    float gray = 1.0;  // Default white (no hit)
+    float gray = 1.0;       // Cell-sampled gray for ASCII dots
+    float rawGray = 1.0;    // Per-pixel gray for smooth raw render
+    float sphereIndex = -1.0;  // Track which sphere was hit
 
     if (insideRenderArea) {
-      float t = raymarch(ro, rd);
+      // Raymarch at per-pixel resolution for smooth raw render and sphere index
+      vec3 roPixel = vec3(pixelUV * 3.0, 5.0);
+      vec2 marchResult = raymarchWithIndex(roPixel, rd);
+      float t = marchResult.x;
+      sphereIndex = marchResult.y;
+
       if (t > 0.0) {
-        vec3 p = ro + rd * t;
+        vec3 p = roPixel + rd * t;
         vec3 n = calcNormal(p);
-        vec3 viewDir = normalize(ro - p);
 
         // Soft hemisphere lighting (sky/ground)
         float hemi = 0.5 + 0.5 * n.y;
@@ -297,8 +397,63 @@ const fragmentShaderSource = `
         float nearPlane = 3.0;
         float farPlane = 8.0;
         float depthFade = smoothstep(nearPlane, farPlane, t);
-        gray = mix(baseGray, 1.0, depthFade * 0.5);
+        rawGray = mix(baseGray, 1.0, depthFade * 0.5);
       }
+
+      // Raymarch at cell center for ASCII dot sizing (only if ASCII enabled)
+      if (u_asciiEnabled > 0.5) {
+        vec3 roCell = vec3(cellUV * 3.0, 5.0);
+        vec2 cellMarchResult = raymarchWithIndex(roCell, rd);
+        float tCell = cellMarchResult.x;
+
+        if (tCell > 0.0) {
+          vec3 pCell = roCell + rd * tCell;
+          vec3 nCell = calcNormal(pCell);
+
+          float hemiCell = 0.5 + 0.5 * nCell.y;
+          vec3 lightDir = normalize(vec3(-0.5, 0.5, 1.0));
+          float diffCell = max(dot(nCell, lightDir), 0.0);
+
+          float ambient = 0.3;
+          float baseGrayCell = ambient + hemiCell * 0.25 + diffCell * 0.35;
+          baseGrayCell = clamp(baseGrayCell, 0.0, 1.0);
+
+          float nearPlane = 3.0;
+          float farPlane = 8.0;
+          float depthFadeCell = smoothstep(nearPlane, farPlane, tCell);
+          gray = mix(baseGrayCell, 1.0, depthFadeCell * 0.5);
+        }
+      } else {
+        gray = rawGray;
+      }
+    }
+
+    // Flicker timing calculation
+    float flickerStart = 1.1;
+    float flickerDuration = 2.8;  // Total duration for the wave to travel
+    float flickerWidth = 2.5;  // How many spheres wide the flicker wave is
+
+    float flickerTime = u_time - flickerStart;
+    float flickerMask = 0.0;
+
+    if (flickerTime > 0.0 && flickerTime < flickerDuration && sphereIndex >= 0.0) {
+      // Normalized progress (0 to 1)
+      float progress = flickerTime / flickerDuration;
+
+      // Ease-in-out (smootherstep for extra smoothness)
+      float easedProgress = progress * progress * progress * (progress * (6.0 * progress - 15.0) + 10.0);
+
+      // Flicker position based on eased progress (reversed: 15 down to -flickerWidth)
+      float flickerPosition = 15.0 + flickerWidth - easedProgress * (16.0 + flickerWidth * 2.0);
+
+      // Distance from this sphere to the flicker wave center
+      float dist = abs(sphereIndex - flickerPosition);
+
+      // Smooth falloff based on distance from wave center
+      float intensity = 1.0 - smoothstep(0.0, flickerWidth, dist);
+
+      // Square for smoother edges
+      flickerMask = intensity * intensity;
     }
 
     // Shape calculations (use local pixel position for render area)
@@ -340,7 +495,13 @@ const fragmentShaderSource = `
     if (u_asciiEnabled > 0.5) {
       // ASCII mode - dots/circles
       float opacity = (1.0 - gray) * showDot;
-      color = mix(bgColor, fgColor, opacity);
+      vec3 asciiColor = mix(bgColor, fgColor, opacity);
+
+      // Colored version for flicker effect (smooth per-pixel)
+      vec3 rawColor = getSphereColor(sphereIndex, rawGray);
+
+      // Blend between ASCII and raw based on flicker mask
+      color = mix(asciiColor, rawColor, flickerMask);
     } else {
       // Raw render mode - direct grayscale
       color = vec3(gray);
@@ -480,8 +641,11 @@ export default function ASCIIBackground({
     // Overlay canvas reference (will be created on resize)
     let overlayCanvas: HTMLCanvasElement | null = null;
 
-    // Track start time for overlay fade-in
-    const startTime = performance.now();
+    // Animation timing - startTime will be set after preload
+    let startTime = 0;
+    let isPreloading = true;
+    let preloadFrames = 0;
+    const PRELOAD_FRAME_COUNT = 3; // Render a few frames to warm up GPU
     const overlayFadeDelay = 1500; // 1.5 seconds
     const overlayFadeDuration = 500; // 0.5 second fade
 
@@ -538,13 +702,24 @@ export default function ASCIIBackground({
     function render() {
       animationRef.current = requestAnimationFrame(render);
 
+      // Preloading phase: render frames at t=0 to warm up GPU/shaders
+      if (isPreloading) {
+        preloadFrames++;
+        if (preloadFrames >= PRELOAD_FRAME_COUNT) {
+          isPreloading = false;
+          startTime = performance.now();
+        }
+      }
+
+      // Calculate elapsed time (0 during preload)
+      const elapsed = isPreloading ? 0 : performance.now() - startTime;
+
       gl.clearColor(1, 1, 1, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
 
       gl.useProgram(program);
 
       // Set uniforms
-      const elapsed = performance.now() - startTime;
       gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
       gl.uniform1f(timeLocation, elapsed / 1000.0);
       gl.uniform1i(overlayTextureLocation, 0);
