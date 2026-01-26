@@ -21,11 +21,26 @@
   --font-sans: "Neue Montreal", sans-serif;
   --color-background: #FDFDFC;
   --color-foreground: #12110D;
+  --color-border: rgba(0,0,0,0.25);
+  --color-transparent: rgba(0,0,0,0);
 }
 
 :root.dark {
   --color-background: #12110D;
   --color-foreground: #edecec;
+  --color-border: rgba(255,255,255,0.25);
+  --color-transparent: rgba(255,255,255,0);
+}
+
+html {
+  overflow: hidden;
+  height: 100%;
+}
+
+body {
+  overflow-y: auto;
+  height: 100%;
+  overscroll-behavior-y: none;
 }
 
 body {

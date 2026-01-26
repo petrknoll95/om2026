@@ -15,7 +15,8 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "resolve-lygia": "^1.0.4",
-    "spltjs": "^1.1.0"
+    "spltjs": "^1.1.0",
+    "tweakpane": "^4.0.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
