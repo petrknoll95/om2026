@@ -168,8 +168,15 @@ const fragmentShaderSource = `
       if (focusDiff > halfCount) {
         focusDiff = u_sphereCount - focusDiff;
       }
-      // Smoothly scale: 1.5x for focused sphere, 1.0x for others
-      float scaleFactor = mix(1.5, 1.0, smoothstep(0.0, 1.0, focusDiff));
+      // Smoothly scale focused sphere
+      // Scale increases with zoom: intro (1.5x) -> carousel (2.8x)
+      // Using quadratic easing (pow 2.5) for asymmetric animation:
+      // - Entering focus (focusDiff 1→0): smooth, gradual growth
+      // - Exiting focus (focusDiff 0→1): slower, lingering shrink
+      float normalizedDiff = clamp(focusDiff, 0.0, 1.0);
+      float easeValue = pow(normalizedDiff, 2.5);
+      float maxScale = mix(1.5, 2.2, u_zoom); // Larger scale when zoomed in
+      float scaleFactor = mix(maxScale, 1.0, easeValue);
       sphereRadius *= scaleFactor;
 
       d = min(d, sdSphere(p - ballPos, sphereRadius));
@@ -423,7 +430,12 @@ export default function HomeWebGLCanvas({
     container.style.zIndex = '9999';
     document.body.appendChild(container);
 
-    const pane = new Pane({ title: 'WebGL Controls', container });
+    // Cast to any to work around Tweakpane v4 type definitions not including addBinding/refresh
+    const pane = new Pane({ title: 'WebGL Controls', container }) as unknown as {
+      addBinding: (params: Record<string, unknown>, key: string, options?: Record<string, unknown>) => { on: (event: string, handler: (ev: { value: unknown }) => void) => void };
+      refresh: () => void;
+      dispose: () => void;
+    };
 
     const params = {
       sphereCount: sphereCount,
@@ -440,18 +452,18 @@ export default function HomeWebGLCanvas({
       min: 8,
       max: 20,
       step: 1,
-    }).on('change', (ev) => {
+    }).on('change', (ev: { value: unknown }) => {
       if (onSphereCountChange) {
-        onSphereCountChange(ev.value);
+        onSphereCountChange(ev.value as number);
       }
     });
 
-    pane.addBinding(params, 'showHelpers', { label: 'Show Sphere Indices' }).on('change', (ev) => {
-      showHelpersRef.current = ev.value;
+    pane.addBinding(params, 'showHelpers', { label: 'Show Sphere Indices' }).on('change', (ev: { value: unknown }) => {
+      showHelpersRef.current = ev.value as boolean;
     });
 
-    pane.addBinding(params, 'showFocusArea', { label: 'Show Focus Area' }).on('change', (ev) => {
-      showFocusAreaRef.current = ev.value;
+    pane.addBinding(params, 'showFocusArea', { label: 'Show Focus Area' }).on('change', (ev: { value: unknown }) => {
+      showFocusAreaRef.current = ev.value as boolean;
     });
 
     pane.addBinding(params, 'mode', {
@@ -530,6 +542,10 @@ export default function HomeWebGLCanvas({
       console.error("WebGL not supported");
       return;
     }
+
+    // Store non-null references for closures (TypeScript control flow doesn't carry through)
+    const canvasEl = canvas;
+    const glCtx = gl;
 
     // Create shaders
     const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
@@ -660,11 +676,11 @@ export default function HomeWebGLCanvas({
       const dpr = window.devicePixelRatio;
       const width = window.innerWidth;
       const height = window.innerHeight;
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-      gl.viewport(0, 0, canvas.width, canvas.height);
+      canvasEl.width = width * dpr;
+      canvasEl.height = height * dpr;
+      canvasEl.style.width = `${width}px`;
+      canvasEl.style.height = `${height}px`;
+      glCtx.viewport(0, 0, canvasEl.width, canvasEl.height);
     }
 
     window.addEventListener("resize", resize);
@@ -675,10 +691,10 @@ export default function HomeWebGLCanvas({
     function render() {
       animationRef.current = requestAnimationFrame(render);
 
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
+      glCtx.clearColor(0, 0, 0, 0);
+      glCtx.clear(glCtx.COLOR_BUFFER_BIT);
 
-      gl.useProgram(program);
+      glCtx.useProgram(program);
 
       // Get current sphere count from ref (used throughout render function)
       const currentSphereCount = sphereCountRef.current;
@@ -700,7 +716,7 @@ export default function HomeWebGLCanvas({
       }
 
       // Smooth interpolation with ease-out cubic easing
-      const lerpFactor = 0.08; // Lower = smoother, slower animation
+      const lerpFactor = 0.05; // Lower = smoother, slower animation
       const easedDiff = diff * lerpFactor;
 
       // Apply ease-out cubic: 1 - (1-t)^3
@@ -722,35 +738,35 @@ export default function HomeWebGLCanvas({
       }
 
       // Set uniforms
-      gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
-      gl.uniform2f(maxVideoSizeLocation, canvas.width, canvas.height);
-      gl.uniform1f(rotationLocation, rotationValueRef.current);
-      gl.uniform1f(timeLocation, (performance.now() - startTime) / 1000.0);
-      gl.uniform1f(entranceRotationLocation, entranceRotationRef.current);
-      gl.uniform1f(tiltYLocation, tiltYValueRef.current);
-      gl.uniform1f(tiltXLocation, tiltXValueRef.current);
-      gl.uniform1f(zoomLocation, zoomValueRef.current);
-      gl.uniform1f(focusedSphereLocation, animatedFocusedSphereRef.current);
-      gl.uniform1f(sphereCountLocation, currentSphereCount);
+      glCtx.uniform2f(resolutionLocation, canvasEl.width, canvasEl.height);
+      glCtx.uniform2f(maxVideoSizeLocation, canvasEl.width, canvasEl.height);
+      glCtx.uniform1f(rotationLocation, rotationValueRef.current);
+      glCtx.uniform1f(timeLocation, (performance.now() - startTime) / 1000.0);
+      glCtx.uniform1f(entranceRotationLocation, entranceRotationRef.current);
+      glCtx.uniform1f(tiltYLocation, tiltYValueRef.current);
+      glCtx.uniform1f(tiltXLocation, tiltXValueRef.current);
+      glCtx.uniform1f(zoomLocation, zoomValueRef.current);
+      glCtx.uniform1f(focusedSphereLocation, animatedFocusedSphereRef.current);
+      glCtx.uniform1f(sphereCountLocation, currentSphereCount);
 
       // Bind position buffer
-      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-      gl.enableVertexAttribArray(positionLocation);
-      gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+      glCtx.bindBuffer(glCtx.ARRAY_BUFFER, positionBuffer);
+      glCtx.enableVertexAttribArray(positionLocation);
+      glCtx.vertexAttribPointer(positionLocation, 2, glCtx.FLOAT, false, 0, 0);
 
       // Bind texcoord buffer
-      gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
-      gl.enableVertexAttribArray(texCoordLocation);
-      gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+      glCtx.bindBuffer(glCtx.ARRAY_BUFFER, texCoordBuffer);
+      glCtx.enableVertexAttribArray(texCoordLocation);
+      glCtx.vertexAttribPointer(texCoordLocation, 2, glCtx.FLOAT, false, 0, 0);
 
       // Draw spheres
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      glCtx.drawArrays(glCtx.TRIANGLES, 0, 6);
 
       // Calculate sphere positions (shared by labels and focus area)
       const circleRadius = 2.43;
       const zoomScale = 3.0 + (1.0 - 3.0) * zoomValueRef.current;
       const xOffset = -2.43 * zoomValueRef.current;
-      const aspect = canvas.width / canvas.height;
+      const aspect = canvasEl.width / canvasEl.height;
 
       // Calculate which sphere is currently aligned with the focus area (left edge, angle = π)
       // Sphere i is at angle: i * (2π / sphereCount) + rotation + entranceRotation
@@ -771,12 +787,12 @@ export default function HomeWebGLCanvas({
 
       // Render labels on top (conditionally)
       if (showHelpersRef.current) {
-        gl.useProgram(labelProgram);
+        glCtx.useProgram(labelProgram);
 
       // Bind label texture
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, labelTexture);
-      gl.uniform1i(labelTextureLocation, 0);
+      glCtx.activeTexture(glCtx.TEXTURE0);
+      glCtx.bindTexture(glCtx.TEXTURE_2D, labelTexture);
+      glCtx.uniform1i(labelTextureLocation, 0);
 
       for (let i = 0; i < currentSphereCount; i++) {
         const angle = (i * Math.PI * 2) / currentSphereCount + rotationValueRef.current + entranceRotationRef.current;
@@ -857,24 +873,24 @@ export default function HomeWebGLCanvas({
         ]);
 
         // Update buffers
-        gl.bindBuffer(gl.ARRAY_BUFFER, labelPosBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, quadPositions, gl.DYNAMIC_DRAW);
-        gl.enableVertexAttribArray(labelPositionLocation);
-        gl.vertexAttribPointer(labelPositionLocation, 2, gl.FLOAT, false, 0, 0);
+        glCtx.bindBuffer(glCtx.ARRAY_BUFFER, labelPosBuffer);
+        glCtx.bufferData(glCtx.ARRAY_BUFFER, quadPositions, glCtx.DYNAMIC_DRAW);
+        glCtx.enableVertexAttribArray(labelPositionLocation);
+        glCtx.vertexAttribPointer(labelPositionLocation, 2, glCtx.FLOAT, false, 0, 0);
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, labelTexBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, quadTexCoords, gl.DYNAMIC_DRAW);
-        gl.enableVertexAttribArray(labelTexCoordLocation);
-        gl.vertexAttribPointer(labelTexCoordLocation, 2, gl.FLOAT, false, 0, 0);
+        glCtx.bindBuffer(glCtx.ARRAY_BUFFER, labelTexBuffer);
+        glCtx.bufferData(glCtx.ARRAY_BUFFER, quadTexCoords, glCtx.DYNAMIC_DRAW);
+        glCtx.enableVertexAttribArray(labelTexCoordLocation);
+        glCtx.vertexAttribPointer(labelTexCoordLocation, 2, glCtx.FLOAT, false, 0, 0);
 
         // Draw this label
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        glCtx.drawArrays(glCtx.TRIANGLES, 0, 6);
       }
       }
 
       // Render focus area rectangle
       if (showFocusAreaRef.current) {
-        gl.useProgram(solidProgram);
+        glCtx.useProgram(solidProgram);
 
         // Focus area center is at the left edge of the circle (negative X = left)
         let focusPos = {
@@ -910,7 +926,7 @@ export default function HomeWebGLCanvas({
         // Rectangle dimensions in NDC
         const rectWidth = 0.15; // Width
         const rectHeight = 0.2; // Height
-        const lineThickness = 0.003; // Outline thickness
+        const lineThickness = 0.001; // Outline thickness (1px)
 
         // Draw 4 rectangles forming the outline
         // Top edge
@@ -953,16 +969,16 @@ export default function HomeWebGLCanvas({
           ndcX + rectWidth/2, ndcY + rectHeight/2,
         ]);
 
-        // Set color (white with some transparency)
-        gl.uniform4f(solidColorLocation, 1.0, 1.0, 1.0, 0.6);
+        // Set color (red)
+        glCtx.uniform4f(solidColorLocation, 1.0, 0.0, 0.0, 1.0);
 
         // Draw each edge
         for (const edge of [topEdge, bottomEdge, leftEdge, rightEdge]) {
-          gl.bindBuffer(gl.ARRAY_BUFFER, solidPosBuffer);
-          gl.bufferData(gl.ARRAY_BUFFER, edge, gl.DYNAMIC_DRAW);
-          gl.enableVertexAttribArray(solidPositionLocation);
-          gl.vertexAttribPointer(solidPositionLocation, 2, gl.FLOAT, false, 0, 0);
-          gl.drawArrays(gl.TRIANGLES, 0, 6);
+          glCtx.bindBuffer(glCtx.ARRAY_BUFFER, solidPosBuffer);
+          glCtx.bufferData(glCtx.ARRAY_BUFFER, edge, glCtx.DYNAMIC_DRAW);
+          glCtx.enableVertexAttribArray(solidPositionLocation);
+          glCtx.vertexAttribPointer(solidPositionLocation, 2, glCtx.FLOAT, false, 0, 0);
+          glCtx.drawArrays(glCtx.TRIANGLES, 0, 6);
         }
       }
     }
@@ -976,21 +992,21 @@ export default function HomeWebGLCanvas({
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
-      gl.deleteProgram(program);
-      gl.deleteShader(vertexShader);
-      gl.deleteShader(fragmentShader);
-      gl.deleteBuffer(positionBuffer);
-      gl.deleteBuffer(texCoordBuffer);
-      gl.deleteProgram(labelProgram);
-      gl.deleteShader(labelVertexShader);
-      gl.deleteShader(labelFragmentShader);
-      gl.deleteBuffer(labelPosBuffer);
-      gl.deleteBuffer(labelTexBuffer);
-      gl.deleteTexture(labelTexture);
-      gl.deleteProgram(solidProgram);
-      gl.deleteShader(solidVertexShader);
-      gl.deleteShader(solidFragmentShader);
-      gl.deleteBuffer(solidPosBuffer);
+      glCtx.deleteProgram(program);
+      glCtx.deleteShader(vertexShader);
+      glCtx.deleteShader(fragmentShader);
+      glCtx.deleteBuffer(positionBuffer);
+      glCtx.deleteBuffer(texCoordBuffer);
+      glCtx.deleteProgram(labelProgram);
+      glCtx.deleteShader(labelVertexShader);
+      glCtx.deleteShader(labelFragmentShader);
+      glCtx.deleteBuffer(labelPosBuffer);
+      glCtx.deleteBuffer(labelTexBuffer);
+      glCtx.deleteTexture(labelTexture);
+      glCtx.deleteProgram(solidProgram);
+      glCtx.deleteShader(solidVertexShader);
+      glCtx.deleteShader(solidFragmentShader);
+      glCtx.deleteBuffer(solidPosBuffer);
     };
   }, []);
 

@@ -28,8 +28,8 @@ export default function HomeSectionHero() {
     } else {
       // Carousel phase: continue from where intro ended (-2π) and snap through remaining spheres
       const carouselProgress = (progress - INTRO_THRESHOLD) / (1 - INTRO_THRESHOLD);
-      const sphereIndex = Math.round(carouselProgress * 15); // 0-15 spheres remaining
-      const snapAngle = (Math.PI * 2) / 16;
+      const sphereIndex = Math.round(carouselProgress * (sphereCount - 1));
+      const snapAngle = (Math.PI * 2) / sphereCount;
 
       // Start from -2π (end of intro) and continue rotating
       return -Math.PI * 2 - (sphereIndex * snapAngle);

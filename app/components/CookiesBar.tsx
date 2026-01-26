@@ -55,7 +55,7 @@ export default function CookiesBar() {
           animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
           exit={{ opacity: 0, filter: "blur(10px)" }}
           transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
-          className="fixed bottom-4 right-4 z-50 w-auto max-w-md"
+          className="fixed bottom-4 right-4 z-99 w-auto max-w-md"
         >
           <div className="relative flex flex-col gap-5 p-6 select-none">
             {/* Background blur layer */}
